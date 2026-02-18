@@ -40,8 +40,14 @@ Litebar is not limited to mission-control agent databases. That is one common us
 ### Homebrew (tap)
 
 ```bash
-brew tap buddyh/litebar
-brew install --HEAD buddyh/litebar/litebar
+brew tap buddyh/homebrew-tap
+brew install buddyh/homebrew-tap/litebar
+```
+
+Development builds:
+
+```bash
+brew install --HEAD buddyh/homebrew-tap/litebar
 ```
 
 Launch:
