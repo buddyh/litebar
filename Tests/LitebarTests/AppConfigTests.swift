@@ -52,4 +52,25 @@ final class AppConfigTests: XCTestCase {
 
         XCTAssertTrue(config.databases.isEmpty)
     }
+
+    func testLoadMergesDuplicateDatabaseEntriesAndAppliesLaterWatches() throws {
+        let dbPath = tempDir.appending(path: "runs.sqlite").path(percentEncoded: false)
+        let yaml = """
+        refresh_interval: 60
+        activity_timeout_minutes: 30
+        databases:
+          - path: \(dbPath)
+            name: Runs
+          - path: \(dbPath)
+            watches:
+              - name: Active Runs
+                query: "SELECT 1"
+        """
+        try yaml.write(to: AppConfig.configURL, atomically: true, encoding: .utf8)
+
+        let loaded = AppConfig.load()
+        XCTAssertEqual(loaded.databases.count, 1)
+        XCTAssertEqual(loaded.databases.first?.watches?.count, 1)
+        XCTAssertEqual(loaded.databases.first?.watches?.first?.name, "Active Runs")
+    }
 }

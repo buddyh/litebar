@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UserNotifications
+import Darwin
 
 @MainActor
 @Observable
@@ -18,6 +19,8 @@ final class AppState {
     private let watchExecutor = WatchExecutor()
     private let backupManager = BackupManager()
     private var refreshTask: Task<Void, Never>?
+    private var configWatchSource: DispatchSourceFileSystemObject?
+    private var pendingConfigRefresh: Task<Void, Never>?
 
     var totalWarnings: Int {
         databases.reduce(0) { count, db in
@@ -29,6 +32,7 @@ final class AppState {
         self.config = AppConfig.load()
         requestNotificationPermission()
         startAutoRefresh()
+        startConfigWatch()
     }
 
     // MARK: - Full refresh cycle
@@ -186,6 +190,7 @@ final class AppState {
     }
 
     func quit() {
+        stopConfigWatch()
         stopAutoRefresh()
         NSApp.terminate(nil)
     }
@@ -241,6 +246,46 @@ final class AppState {
     func stopAutoRefresh() {
         refreshTask?.cancel()
         refreshTask = nil
+    }
+
+    private func startConfigWatch() {
+        do {
+            try FileManager.default.createDirectory(at: AppConfig.configDir, withIntermediateDirectories: true)
+        } catch {
+            NSLog("[Litebar] Failed to create config directory for watcher: %@", error.localizedDescription)
+            return
+        }
+
+        let dirPath = AppConfig.configDir.path(percentEncoded: false)
+        let fd = open(dirPath, O_EVTONLY)
+        guard fd >= 0 else {
+            NSLog("[Litebar] Failed to open config directory for watcher at %@", dirPath)
+            return
+        }
+
+        let mask: DispatchSource.FileSystemEvent = [.write, .rename, .delete, .attrib, .extend]
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: mask, queue: .main)
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.pendingConfigRefresh?.cancel()
+            self.pendingConfigRefresh = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self else { return }
+                await self.refresh()
+            }
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        configWatchSource = source
+    }
+
+    private func stopConfigWatch() {
+        pendingConfigRefresh?.cancel()
+        pendingConfigRefresh = nil
+        configWatchSource?.cancel()
+        configWatchSource = nil
     }
 
     // MARK: - Grouped databases

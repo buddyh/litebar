@@ -114,23 +114,45 @@ struct AppConfig: Codable, Sendable {
         normalized.refreshInterval = max(10, refreshInterval)
         normalized.activityTimeoutMinutes = max(1, activityTimeoutMinutes)
 
-        var seenPaths: Set<String> = []
-        normalized.databases = databases.compactMap { entry -> DatabaseEntry? in
-            guard let path = Self.normalizedAbsolutePath(entry.path) else { return nil }
-            guard !seenPaths.contains(path) else { return nil }
-            seenPaths.insert(path)
+        var mergedByPath: [String: DatabaseEntry] = [:]
+        var pathOrder: [String] = []
+
+        for entry in databases {
+            guard let path = Self.normalizedAbsolutePath(entry.path) else { continue }
 
             let watches = entry.watches?
                 .map { $0.normalized() }
                 .filter { !$0.name.isEmpty && !$0.query.isEmpty }
+            let normalizedWatches = (watches?.isEmpty == true) ? nil : watches
 
-            return DatabaseEntry(
+            let normalizedEntry = DatabaseEntry(
                 path: path,
                 name: entry.name.trimmedNilIfEmpty,
                 group: entry.group.trimmedNilIfEmpty,
-                watches: (watches?.isEmpty == true) ? nil : watches
+                watches: normalizedWatches
             )
+
+            // Merge duplicate database paths so agent-appended entries can
+            // update metadata/watches for an existing database definition.
+            if var existing = mergedByPath[path] {
+                if let name = normalizedEntry.name {
+                    existing.name = name
+                }
+                if let group = normalizedEntry.group {
+                    existing.group = group
+                }
+                // Only overwrite watches when the later entry includes a watches field.
+                if entry.watches != nil {
+                    existing.watches = normalizedWatches
+                }
+                mergedByPath[path] = existing
+            } else {
+                mergedByPath[path] = normalizedEntry
+                pathOrder.append(path)
+            }
         }
+
+        normalized.databases = pathOrder.compactMap { mergedByPath[$0] }
         return normalized
     }
 
