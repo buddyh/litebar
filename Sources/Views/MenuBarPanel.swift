@@ -61,8 +61,27 @@ struct MenuBarPanel: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
             .disabled(appState.isLoading)
+
+            Menu {
+                Button("Refresh Now") {
+                    Task { await appState.refresh() }
+                }
+                Button("Open Settings") {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                }
+                Button("Open ~/.litebar") {
+                    appState.openLitebarDirectory()
+                }
+                Divider()
+                Button("Quit Litebar") {
+                    appState.quit()
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -158,29 +177,25 @@ struct MenuBarPanel: View {
             Text("Agent-managed")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-            Button {
+            Button("Add") {
                 appState.addDatabaseFromPicker()
-            } label: {
-                Image(systemName: "plus")
-                    .font(.caption)
             }
-            .buttonStyle(.borderless)
+            .font(.caption)
+            .controlSize(.small)
             .help("Add database")
 
-            Button {
+            Button("Folder") {
                 appState.openLitebarDirectory()
-            } label: {
-                Image(systemName: "folder")
-                    .font(.caption)
             }
-            .buttonStyle(.borderless)
+            .font(.caption)
+            .controlSize(.small)
             .help("Open ~/.litebar")
 
             Button("Quit") {
-                NSApp.terminate(nil)
+                appState.quit()
             }
             .font(.caption)
-            .buttonStyle(.borderless)
+            .controlSize(.small)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)

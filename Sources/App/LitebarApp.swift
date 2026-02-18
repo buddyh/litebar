@@ -16,6 +16,33 @@ struct LitebarApp: App {
                         .font(.system(size: 9, weight: .bold))
                 }
             }
+            .contextMenu {
+                Button {
+                    Task { await appState.refresh() }
+                } label: {
+                    Label("Refresh Now", systemImage: "arrow.clockwise")
+                }
+
+                Button {
+                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+
+                Button {
+                    appState.openLitebarDirectory()
+                } label: {
+                    Label("Open ~/.litebar", systemImage: "folder")
+                }
+
+                Divider()
+
+                Button {
+                    NSApp.terminate(nil)
+                } label: {
+                    Label("Quit Litebar", systemImage: "power")
+                }
+            }
         }
         .menuBarExtraStyle(.window)
 

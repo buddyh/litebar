@@ -135,32 +135,59 @@ final class AppState {
     }
 
     func addDatabaseFromPicker() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.database, .data]
-        panel.message = "Select SQLite database files to monitor"
+        NSApp.activate(ignoringOtherApps: true)
+        // Menu bar popovers can reject runModal() with an alert beep.
+        // Defer and use async presentation so the picker appears reliably.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self else { return }
 
-        if panel.runModal() == .OK {
-            for url in panel.urls {
-                let name = url.deletingPathExtension().lastPathComponent
-                addDatabase(path: url.path(percentEncoded: false), name: name)
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = false
+            panel.allowsMultipleSelection = true
+            panel.allowedContentTypes = [.database, .data]
+            panel.message = "Select SQLite database files to monitor"
+            panel.level = .floating
+
+            panel.begin { response in
+                guard response == .OK else { return }
+                for url in panel.urls {
+                    let name = url.deletingPathExtension().lastPathComponent
+                    self.addDatabase(path: url.path(percentEncoded: false), name: name)
+                }
+                Task { await self.refresh() }
             }
-            Task { await refresh() }
         }
     }
 
     func openConfig() {
+        NSApp.activate(ignoringOtherApps: true)
+        _ = AppConfig.load()
         NSWorkspace.shared.open(AppConfig.configURL)
     }
 
     func openLitebarDirectory() {
-        NSWorkspace.shared.open(AppConfig.configDir)
+        NSApp.activate(ignoringOtherApps: true)
+        do {
+            try FileManager.default.createDirectory(at: AppConfig.configDir, withIntermediateDirectories: true)
+            guard NSWorkspace.shared.open(AppConfig.configDir) else {
+                NSLog("[Litebar] Failed to open config directory at %@", AppConfig.configDir.path(percentEncoded: false))
+                return
+            }
+        } catch {
+            NSLog("[Litebar] Failed to create config directory at %@: %@", AppConfig.configDir.path(percentEncoded: false), error.localizedDescription)
+        }
     }
 
     func openAgentGuide() {
+        NSApp.activate(ignoringOtherApps: true)
+        _ = AppConfig.load()
         NSWorkspace.shared.open(AppConfig.agentGuideURL)
+    }
+
+    func quit() {
+        stopAutoRefresh()
+        NSApp.terminate(nil)
     }
 
     // MARK: - Health & Refresh

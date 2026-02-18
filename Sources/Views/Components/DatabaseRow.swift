@@ -149,7 +149,7 @@ struct DatabaseRow: View {
                     Image(systemName: "folder")
                         .font(.system(size: 10))
                 }
-                .buttonStyle(.borderless)
+                .controlSize(.small)
                 .help("Reveal in Finder")
             }
 
@@ -337,7 +337,7 @@ struct DatabaseRow: View {
                         .font(.system(size: 10))
                 }
             }
-            .buttonStyle(.borderless)
+            .controlSize(.small)
             .disabled(isRefreshing || isCheckingHealth || isBackingUp)
 
             Button {
@@ -370,7 +370,7 @@ struct DatabaseRow: View {
                         .font(.system(size: 10))
                 }
             }
-            .buttonStyle(.borderless)
+            .controlSize(.small)
             .disabled(isRefreshing || isCheckingHealth || isBackingUp)
 
             Button {
@@ -401,7 +401,7 @@ struct DatabaseRow: View {
                         .font(.system(size: 10))
                 }
             }
-            .buttonStyle(.borderless)
+            .controlSize(.small)
             .disabled(isRefreshing || isCheckingHealth || isBackingUp)
 
             Spacer()
