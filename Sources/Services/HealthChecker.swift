@@ -26,13 +26,13 @@ actor HealthChecker {
                 }
             }
 
-            // 3. WAL checkpoint status
+            // 3. WAL pressure signal (read-only safe)
             if database.journalMode?.lowercased() == "wal" {
-                let walPages = try await conn.query("PRAGMA wal_checkpoint(PASSIVE)")
-                if let row = walPages.first,
-                   let total = row["busy"].flatMap(Int.init),
-                   total > 0 {
-                    return .warning("WAL has \(total) busy pages -- may need checkpointing")
+                let walBytes = database.walSize ?? 0
+                let warnThreshold: Int64 = 100 * 1024 * 1024 // 100 MB
+                if walBytes > warnThreshold {
+                    let formatted = ByteCountFormatter.string(fromByteCount: walBytes, countStyle: .file)
+                    return .warning("Large WAL file (\(formatted)). Consider checkpointing from a read-write process.")
                 }
             }
 

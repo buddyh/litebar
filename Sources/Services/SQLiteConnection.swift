@@ -42,24 +42,56 @@ actor SQLiteConnection {
         var rows: [[String: String]] = []
         let columnCount = sqlite3_column_count(stmt)
 
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            var row: [String: String] = [:]
-            for i in 0..<columnCount {
-                let name = String(cString: sqlite3_column_name(stmt, i))
-                if let text = sqlite3_column_text(stmt, i) {
-                    row[name] = String(cString: text)
-                } else {
-                    row[name] = nil
+        while true {
+            let stepResult = sqlite3_step(stmt)
+            if stepResult == SQLITE_ROW {
+                var row: [String: String] = [:]
+                for i in 0..<columnCount {
+                    let name = String(cString: sqlite3_column_name(stmt, i))
+                    if let text = sqlite3_column_text(stmt, i) {
+                        row[name] = String(cString: text)
+                    } else {
+                        row[name] = nil
+                    }
                 }
+                rows.append(row)
+                continue
             }
-            rows.append(row)
+
+            if stepResult == SQLITE_DONE {
+                break
+            }
+
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw LitebarError.queryFailed(msg)
         }
         return rows
     }
 
     func scalar(_ sql: String) throws -> String? {
-        let rows = try query(sql)
-        return rows.first?.values.first
+        guard let db else { throw LitebarError.notConnected }
+
+        var stmt: OpaquePointer?
+        let prepareResult = sqlite3_prepare_v2(db, sql, -1, &stmt, nil)
+        guard prepareResult == SQLITE_OK else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw LitebarError.queryFailed(msg)
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let stepResult = sqlite3_step(stmt)
+        if stepResult == SQLITE_DONE {
+            return nil
+        }
+        guard stepResult == SQLITE_ROW else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw LitebarError.queryFailed(msg)
+        }
+
+        guard let text = sqlite3_column_text(stmt, 0) else {
+            return nil
+        }
+        return String(cString: text)
     }
 
     func integrityCheck() throws -> String {

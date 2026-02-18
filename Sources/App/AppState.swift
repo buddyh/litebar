@@ -9,7 +9,6 @@ final class AppState {
     var config: AppConfig
     var isLoading = false
     var lastRefresh: Date?
-    var selectedDatabase: SQLiteDatabase?
 
     // Track previous alert states to only notify on transitions
     private var previousAlerts: Set<String> = []
@@ -29,6 +28,7 @@ final class AppState {
     init() {
         self.config = AppConfig.load()
         requestNotificationPermission()
+        startAutoRefresh()
     }
 
     // MARK: - Full refresh cycle
@@ -38,7 +38,8 @@ final class AppState {
         defer { isLoading = false }
 
         // Reload config (might have been edited by agent)
-        config = AppConfig.load()
+        config = AppConfig.load().normalized()
+        var nextAlerts: Set<String> = []
 
         for entry in config.databases {
             let url = URL(filePath: entry.path)
@@ -56,10 +57,15 @@ final class AppState {
                 dbIdx = databases.count - 1
             }
 
+            databases[dbIdx].customName = entry.name
+            databases[dbIdx].group = entry.group
+            databases[dbIdx].isRegistered = true
+
             guard FileManager.default.fileExists(atPath: entry.path) else {
                 databases[dbIdx].healthStatus = .error("File not found")
-                databases[dbIdx].customName = entry.name
-                databases[dbIdx].group = entry.group
+                databases[dbIdx].lastChecked = Date()
+                databases[dbIdx].isQuiet = false
+                databases[dbIdx].watchResults = []
                 continue
             }
 
@@ -68,31 +74,19 @@ final class AppState {
                 uniqueKeysWithValues: databases[dbIdx].tables.map { ($0.name, $0.rowCount) }
             )
 
-            // Inspect database
             if let inspected = await inspector.inspect(url) {
-                databases[dbIdx].fileSize = inspected.fileSize
-                databases[dbIdx].tableCount = inspected.tableCount
-                databases[dbIdx].tables = inspected.tables
-                databases[dbIdx].lastModified = inspected.lastModified
-                databases[dbIdx].walSize = inspected.walSize
-                databases[dbIdx].shmSize = inspected.shmSize
-                databases[dbIdx].journalMode = inspected.journalMode
-                databases[dbIdx].pageSize = inspected.pageSize
-                databases[dbIdx].pageCount = inspected.pageCount
-                databases[dbIdx].encoding = inspected.encoding
-                databases[dbIdx].sqliteVersion = inspected.sqliteVersion
+                applyInspection(inspected, to: dbIdx)
+            } else {
+                databases[dbIdx].healthStatus = .error("Inspection failed")
+                databases[dbIdx].lastChecked = Date()
+                databases[dbIdx].watchResults = []
+                continue
             }
 
-            databases[dbIdx].customName = entry.name
-            databases[dbIdx].group = entry.group
-            databases[dbIdx].isRegistered = true
             databases[dbIdx].previousRowCounts = prevCounts
 
             // Activity pulse: check if database is quiet
-            if let modified = databases[dbIdx].lastModified {
-                let minutesSinceWrite = Date().timeIntervalSince(modified) / 60
-                databases[dbIdx].isQuiet = minutesSinceWrite > Double(config.activityTimeoutMinutes)
-            }
+            databases[dbIdx].isQuiet = isDatabaseQuiet(databases[dbIdx])
 
             // Health check
             databases[dbIdx].healthStatus = await healthChecker.check(databases[dbIdx])
@@ -103,30 +97,26 @@ final class AppState {
                 let results = await watchExecutor.execute(watches: watches, on: databases[dbIdx])
                 databases[dbIdx].watchResults = results
 
-                // Send notifications for new alerts
-                for result in results where result.alertState != .normal {
-                    let alertKey = "\(databases[dbIdx].displayName):\(result.name)"
-                    if !previousAlerts.contains(alertKey) {
-                        previousAlerts.insert(alertKey)
-                        await watchExecutor.sendAlert(
+                for (watch, result) in zip(watches, results) where result.alertState != .normal {
+                    let key = alertKey(databaseID: databases[dbIdx].id, watch: watch)
+                    nextAlerts.insert(key)
+                    if !previousAlerts.contains(key) {
+                        watchExecutor.sendAlert(
                             dbName: databases[dbIdx].displayName,
                             watchName: result.name,
                             value: result.displayValue
                         )
                     }
                 }
-
-                // Clear resolved alerts
-                for result in results where result.alertState == .normal {
-                    let alertKey = "\(databases[dbIdx].displayName):\(result.name)"
-                    previousAlerts.remove(alertKey)
-                }
+            } else {
+                databases[dbIdx].watchResults = []
             }
         }
 
         // Remove databases no longer in config
         let configPaths = Set(config.databases.map { $0.path })
         databases.removeAll { !configPaths.contains($0.path.path(percentEncoded: false)) }
+        previousAlerts = nextAlerts
 
         lastRefresh = Date()
     }
@@ -165,25 +155,38 @@ final class AppState {
         NSWorkspace.shared.open(AppConfig.configURL)
     }
 
+    func openLitebarDirectory() {
+        NSWorkspace.shared.open(AppConfig.configDir)
+    }
+
+    func openAgentGuide() {
+        NSWorkspace.shared.open(AppConfig.agentGuideURL)
+    }
+
     // MARK: - Health & Refresh
 
     func refreshDatabase(_ db: SQLiteDatabase) async {
         guard let idx = databases.firstIndex(where: { $0.id == db.id }) else { return }
+        config = AppConfig.load().normalized()
+
+        let prevCounts = Dictionary(
+            uniqueKeysWithValues: databases[idx].tables.map { ($0.name, $0.rowCount) }
+        )
+
         if let inspected = await inspector.inspect(db.path) {
-            databases[idx].fileSize = inspected.fileSize
-            databases[idx].tableCount = inspected.tableCount
-            databases[idx].tables = inspected.tables
-            databases[idx].lastModified = inspected.lastModified
-            databases[idx].walSize = inspected.walSize
-            databases[idx].shmSize = inspected.shmSize
-            databases[idx].journalMode = inspected.journalMode
-            databases[idx].pageSize = inspected.pageSize
-            databases[idx].pageCount = inspected.pageCount
-            databases[idx].encoding = inspected.encoding
-            databases[idx].sqliteVersion = inspected.sqliteVersion
+            applyInspection(inspected, to: idx)
+            databases[idx].previousRowCounts = prevCounts
         }
+        databases[idx].isQuiet = isDatabaseQuiet(databases[idx])
         databases[idx].healthStatus = await healthChecker.check(databases[idx])
         databases[idx].lastChecked = Date()
+
+        let dbPath = databases[idx].path.path(percentEncoded: false)
+        if let watches = config.databases.first(where: { $0.path == dbPath })?.watches, !watches.isEmpty {
+            databases[idx].watchResults = await watchExecutor.execute(watches: watches, on: databases[idx])
+        } else {
+            databases[idx].watchResults = []
+        }
     }
 
     func checkHealth(for db: SQLiteDatabase) async -> HealthStatus {
@@ -197,8 +200,10 @@ final class AppState {
     // MARK: - Auto refresh
 
     func startAutoRefresh() {
+        NSLog("[Litebar] startAutoRefresh called")
         refreshTask?.cancel()
         refreshTask = Task {
+            NSLog("[Litebar] refresh loop starting")
             while !Task.isCancelled {
                 await refresh()
                 try? await Task.sleep(for: .seconds(Double(config.refreshInterval)))
@@ -221,6 +226,31 @@ final class AppState {
     // MARK: - Notifications
 
     private func requestNotificationPermission() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    private func applyInspection(_ inspected: SQLiteDatabase, to index: Int) {
+        databases[index].fileSize = inspected.fileSize
+        databases[index].tableCount = inspected.tableCount
+        databases[index].tables = inspected.tables
+        databases[index].lastModified = inspected.lastModified
+        databases[index].walSize = inspected.walSize
+        databases[index].shmSize = inspected.shmSize
+        databases[index].journalMode = inspected.journalMode
+        databases[index].pageSize = inspected.pageSize
+        databases[index].pageCount = inspected.pageCount
+        databases[index].encoding = inspected.encoding
+        databases[index].sqliteVersion = inspected.sqliteVersion
+    }
+
+    private func isDatabaseQuiet(_ database: SQLiteDatabase) -> Bool {
+        guard let modified = database.lastModified else { return false }
+        let minutesSinceWrite = Date().timeIntervalSince(modified) / 60
+        return minutesSinceWrite > Double(config.activityTimeoutMinutes)
+    }
+
+    private func alertKey(databaseID: String, watch: AppConfig.WatchExpression) -> String {
+        "\(databaseID):\(watch.name):\(watch.query)"
     }
 }

@@ -16,7 +16,7 @@ actor WatchExecutor {
             var results: [WatchResult] = []
             for watch in watches {
                 var result = WatchResult(
-                    id: "\(database.id):\(watch.name)",
+                    id: "\(database.id):\(watch.name):\(watch.query)",
                     name: watch.name,
                     query: watch.query,
                     format: watch.format ?? .number
@@ -48,7 +48,7 @@ actor WatchExecutor {
         } catch {
             return watches.map { watch in
                 var r = WatchResult(
-                    id: "\(database.id):\(watch.name)",
+                    id: "\(database.id):\(watch.name):\(watch.query)",
                     name: watch.name,
                     query: watch.query,
                     format: watch.format ?? .number
@@ -63,13 +63,14 @@ actor WatchExecutor {
     /// Send a macOS notification for watch alerts
     @MainActor
     func sendAlert(dbName: String, watchName: String, value: String) {
+        guard Bundle.main.bundleIdentifier != nil else { return }
         let content = UNMutableNotificationContent()
         content.title = "Litebar"
         content.body = "\(dbName): \(watchName) = \(value)"
         content.sound = .default
 
         let request = UNNotificationRequest(
-            identifier: "sqlamp-\(dbName)-\(watchName)-\(Date().timeIntervalSince1970)",
+            identifier: "litebar-\(dbName)-\(watchName)-\(Date().timeIntervalSince1970)",
             content: content,
             trigger: nil
         )

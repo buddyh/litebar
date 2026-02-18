@@ -14,7 +14,15 @@ let package = Package(
         .executableTarget(
             name: "Litebar",
             dependencies: ["Yams"],
-            path: "Sources"
+            path: "Sources",
+            resources: [
+                .copy("Resources/litebar"),
+            ]
+        ),
+        .testTarget(
+            name: "LitebarTests",
+            dependencies: ["Litebar"],
+            path: "Tests/LitebarTests"
         ),
     ]
 )

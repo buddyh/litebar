@@ -55,8 +55,8 @@ actor DatabaseScanner {
                 if var db = await inspect(url) {
                     db.fileSize = fileSize(url)
                     db.lastModified = modificationDate(url)
-                    db.walSize = fileSize(url.appendingPathExtension("wal"))
-                    db.shmSize = fileSize(url.appendingPathExtension("shm"))
+                    db.walSize = fileSize(URL(filePath: url.path(percentEncoded: false) + "-wal"))
+                    db.shmSize = fileSize(URL(filePath: url.path(percentEncoded: false) + "-shm"))
                     results.append(db)
                 }
             }
@@ -104,15 +104,16 @@ actor DatabaseScanner {
             db.tableCount = tableRows.count
             for row in tableRows {
                 guard let name = row["name"] else { continue }
+                let quotedTableName = quotedIdentifier(name)
                 var table = TableInfo(name: name)
 
                 // Row count (with safety limit)
-                if let countStr = try? await conn.scalar("SELECT COUNT(*) FROM \"\(name)\"") {
+                if let countStr = try? await conn.scalar("SELECT COUNT(*) FROM \(quotedTableName)") {
                     table.rowCount = Int64(countStr) ?? 0
                 }
 
                 // Column info
-                let columns = try await conn.query("PRAGMA table_info(\"\(name)\")")
+                let columns = try await conn.query("PRAGMA table_info(\(quotedTableName))")
                 table.columnCount = columns.count
                 table.columns = columns.map { col in
                     ColumnInfo(
@@ -125,7 +126,7 @@ actor DatabaseScanner {
                 }
 
                 // Index count
-                let indices = try await conn.query("PRAGMA index_list(\"\(name)\")")
+                let indices = try await conn.query("PRAGMA index_list(\(quotedTableName))")
                 table.indexCount = indices.count
 
                 db.tables.append(table)
@@ -145,5 +146,9 @@ actor DatabaseScanner {
     private func modificationDate(_ url: URL) -> Date? {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
         return attrs?[.modificationDate] as? Date
+    }
+
+    private func quotedIdentifier(_ identifier: String) -> String {
+        "\"\(identifier.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 }

@@ -30,13 +30,14 @@ actor DatabaseInspector {
             db.tableCount = tableRows.count
             for row in tableRows {
                 guard let name = row["name"] else { continue }
+                let quotedTableName = quotedIdentifier(name)
                 var table = TableInfo(name: name)
 
-                if let countStr = try? await conn.scalar("SELECT COUNT(*) FROM \"\(name)\"") {
+                if let countStr = try? await conn.scalar("SELECT COUNT(*) FROM \(quotedTableName)") {
                     table.rowCount = Int64(countStr) ?? 0
                 }
 
-                let columns = try await conn.query("PRAGMA table_info(\"\(name)\")")
+                let columns = try await conn.query("PRAGMA table_info(\(quotedTableName))")
                 table.columnCount = columns.count
                 table.columns = columns.map { col in
                     ColumnInfo(
@@ -48,7 +49,7 @@ actor DatabaseInspector {
                     )
                 }
 
-                let indices = try await conn.query("PRAGMA index_list(\"\(name)\")")
+                let indices = try await conn.query("PRAGMA index_list(\(quotedTableName))")
                 table.indexCount = indices.count
 
                 db.tables.append(table)
@@ -56,6 +57,7 @@ actor DatabaseInspector {
 
             return db
         } catch {
+            NSLog("[Litebar] Inspect failed for %@: %@", url.path(), error.localizedDescription)
             return nil
         }
     }
@@ -71,10 +73,14 @@ actor DatabaseInspector {
     }
 
     private func walURL(for url: URL) -> URL {
-        url.deletingPathExtension().appendingPathExtension(url.pathExtension + "-wal")
+        URL(filePath: url.path(percentEncoded: false) + "-wal")
     }
 
     private func shmURL(for url: URL) -> URL {
-        url.deletingPathExtension().appendingPathExtension(url.pathExtension + "-shm")
+        URL(filePath: url.path(percentEncoded: false) + "-shm")
+    }
+
+    private func quotedIdentifier(_ identifier: String) -> String {
+        "\"\(identifier.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 }

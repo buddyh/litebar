@@ -4,3 +4,9 @@
 *.xcworkspace
 DerivedData/
 .DS_Store
+.env
+.env.local
+node_modules/
+__pycache__/
+*.pyc
+.claude/settings.local.json

@@ -5,12 +5,10 @@ struct SettingsView: View {
 
     var body: some View {
         TabView {
-            Tab("Databases", systemImage: "cylinder.split.1x2") {
-                databasesTab
-            }
-            Tab("Config", systemImage: "doc.text") {
-                configTab
-            }
+            databasesTab
+                .tabItem { Label("Databases", systemImage: "cylinder.split.1x2") }
+            configTab
+                .tabItem { Label("Agent Setup", systemImage: "person.2.fill") }
         }
         .frame(width: 520, height: 380)
     }
@@ -23,7 +21,7 @@ struct SettingsView: View {
                 VStack(spacing: 8) {
                     Text("No databases configured")
                         .foregroundStyle(.secondary)
-                    Text("Edit config.yaml to add databases and watch expressions")
+                    Text("Populate ~/.litebar/config.yaml via your agent")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -64,8 +62,8 @@ struct SettingsView: View {
                     appState.addDatabaseFromPicker()
                 }
                 Spacer()
-                Button("Edit config.yaml") {
-                    appState.openConfig()
+                Button("Open ~/.litebar") {
+                    appState.openLitebarDirectory()
                 }
             }
             .padding(12)
@@ -76,28 +74,37 @@ struct SettingsView: View {
 
     private var configTab: some View {
         VStack(alignment: .leading, spacing: 16) {
-            GroupBox("Config File") {
+            GroupBox("Agent-Managed Folder") {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text(AppConfig.configURL.path(percentEncoded: false))
+                        Text(AppConfig.configDir.path(percentEncoded: false))
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                         Spacer()
-                        Button("Open") {
-                            appState.openConfig()
+                        Button("Open Folder") {
+                            appState.openLitebarDirectory()
                         }
                         .controlSize(.small)
                     }
-                    Text("Edit this file to add databases, watch expressions, and alerts. Agents can also edit it.")
+                    Text("Agents should manage this folder. It contains config.yaml and an AGENTS.md capability guide.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    HStack {
+                        Button("Open config.yaml") {
+                            appState.openConfig()
+                        }
+                        .controlSize(.small)
+                        Button("Open AGENTS.md") {
+                            appState.openAgentGuide()
+                        }
+                        .controlSize(.small)
+                    }
                 }
                 .padding(4)
             }
 
             GroupBox("Backups") {
-                let backupPath = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                    .appending(path: "Litebar/Backups")
+                let backupPath = AppConfig.configDir.appending(path: "backups", directoryHint: .isDirectory)
                 HStack {
                     Text(backupPath.path(percentEncoded: false))
                         .font(.system(.caption, design: .monospaced))

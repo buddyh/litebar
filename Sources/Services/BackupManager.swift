@@ -7,8 +7,7 @@ actor BackupManager {
     private var historyStore: [String: [BackupRecord]] = [:]
 
     init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        self.backupRoot = appSupport.appending(path: "Litebar/Backups")
+        self.backupRoot = AppConfig.configDir.appending(path: "backups", directoryHint: .isDirectory)
         try? FileManager.default.createDirectory(at: backupRoot, withIntermediateDirectories: true)
     }
 

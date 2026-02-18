@@ -1,136 +1,64 @@
-# Litebar - SQLite Monitoring for Agents
+# Litebar Repository Agent Guide
 
-Litebar is a macOS menubar app that monitors SQLite databases. It lives in the menubar and shows database health, table sizes, activity status, and custom watch expressions. It's built for people running agent systems, personal life operating systems, and mission-control dashboards backed by SQLite.
+This file is for agents working on the Litebar codebase in this repository.
 
-**You are reading this because a project you're working in uses Litebar for monitoring. You can configure what Litebar monitors by editing its config file.**
+## Project Purpose
 
-## Config Location
+Litebar is a macOS menubar app that provides passive observability for SQLite-backed systems, with an agent-operated configuration model.
 
-```
-~/Library/Application Support/Litebar/config.yaml
-```
+## Key Principles
 
-Litebar reloads this file automatically on every refresh cycle (default: 60 seconds). Any changes you write take effect on the next refresh.
+- Prioritize operational reliability and signal quality.
+- Keep refresh behavior lightweight and deterministic.
+- Treat `~/.litebar/config.yaml` as agent-managed runtime state.
+- Avoid introducing breaking changes to existing config schema without migration.
 
-## What You Can Configure
+## Repository Layout
 
-### Register a Database
+- `Sources/App/`: app lifecycle and shared app state
+- `Sources/Models/`: config/state/data models
+- `Sources/Services/`: SQLite inspection, health, watches, backups
+- `Sources/Views/`: menu and settings UI
+- `Sources/Resources/litebar/`: runtime template files copied to `~/.litebar/` on first run
+- `Tests/LitebarTests/`: unit tests
+- `Formula/litebar.rb`: Homebrew formula
 
-Add your project's SQLite database to the `databases` list so Litebar picks it up:
+## Runtime Template Contract
 
-```yaml
-databases:
-  - path: /absolute/path/to/your/database.db
-    name: Human-Readable Name    # optional, shown in the panel
-    group: Project Name           # optional, groups databases visually
-```
+Litebar bootstraps runtime files from repository-tracked templates:
 
-- `path` is required and must be an absolute path to a `.db`, `.sqlite`, or `.sqlite3` file.
-- `name` defaults to the filename if not provided.
-- `group` is optional. Databases with the same group are shown together.
+- `Sources/Resources/litebar/config.yaml`
+- `Sources/Resources/litebar/AGENTS.md`
 
-### Add Watch Expressions
+App bootstrap copies these to:
 
-Watch expressions are custom SQL queries that run on every refresh. Each query must return exactly one value (one row, one column). Results are shown in the Litebar panel next to the database.
+- `~/.litebar/config.yaml`
+- `~/.litebar/AGENTS.md`
 
-```yaml
-databases:
-  - path: /path/to/db.sqlite
-    name: My System
-    watches:
-      - name: Active Tasks
-        query: "SELECT COUNT(*) FROM tasks WHERE status = 'active'"
+Important: bootstrap only writes missing files. Existing user files are preserved.
 
-      - name: Failed Jobs (24h)
-        query: "SELECT COUNT(*) FROM jobs WHERE status = 'failed' AND created_at > datetime('now', '-24 hours')"
-        warn_above: 0
+## Build and Test
 
-      - name: Queue Depth
-        query: "SELECT COUNT(*) FROM tasks WHERE status = 'pending'"
-        warn_above: 20
-
-      - name: Today's Cost
-        query: "SELECT ROUND(COALESCE(SUM(cost_usd), 0), 2) FROM session_costs WHERE date(created_at) = date('now')"
-        format: dollar
-        warn_above: 10.00
+```bash
+swift build
+swift test
 ```
 
-### Watch Expression Fields
+## Change Guidelines
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | yes | Label shown in the panel |
-| `query` | yes | SQL SELECT returning one value. Use `COALESCE()` to handle NULLs. |
-| `warn_above` | no | Trigger alert if value exceeds this number |
-| `warn_below` | no | Trigger alert if value drops below this number |
-| `format` | no | Display format: `number` (default), `dollar`, `bytes`, `percent`, `text` |
+- Keep changes small and scoped.
+- Maintain macOS 15+ compatibility baseline.
+- Validate new config behavior with tests when feasible.
+- If updating runtime semantics, update all three:
+  1. `Sources/Resources/litebar/AGENTS.md`
+  2. `README.md`
+  3. relevant code paths in `Sources/Models/AppConfig.swift`
 
-When a threshold is crossed, Litebar fires a macOS notification and shows the value in orange/red in the panel. Notifications only fire on state transitions (normal -> warning), not repeatedly.
+## Release Hygiene
 
-### Global Settings
+Before publishing:
 
-```yaml
-refresh_interval: 60              # seconds between refresh cycles
-activity_timeout_minutes: 30      # flag database as "quiet" after this many minutes of no writes
-```
-
-## What Litebar Monitors Automatically
-
-For each registered database, Litebar tracks:
-
-- **Health**: runs `PRAGMA integrity_check`, checks freelist fragmentation, WAL checkpoint status
-- **Activity pulse**: monitors filesystem last-modified time. If no writes happen for `activity_timeout_minutes`, the database is flagged as "quiet" with a visible badge. Useful for detecting crashed agents or stalled pipelines.
-- **Table deltas**: tracks row count changes between refreshes. Shows +/- indicators when tables grow or shrink.
-- **File size**: total size including WAL and SHM files
-- **Metadata**: journal mode, page size, page count, encoding, SQLite version
-
-## Common Watch Patterns for Agent Systems
-
-### Stuck tasks
-```yaml
-- name: Stuck Tasks
-  query: "SELECT COUNT(*) FROM tasks WHERE status = 'in_progress' AND updated_at < datetime('now', '-2 hours')"
-  warn_above: 0
-```
-
-### Agent heartbeat freshness (minutes since last heartbeat)
-```yaml
-- name: Last Heartbeat
-  query: "SELECT CAST((julianday('now') - julianday(MAX(last_heartbeat))) * 1440 AS INTEGER) FROM agent_sessions"
-  format: text
-  warn_above: 30
-```
-
-### Daily token burn
-```yaml
-- name: Tokens Today
-  query: "SELECT COALESCE(SUM(total_tokens), 0) FROM runs WHERE date(created_at) = date('now')"
-  format: number
-  warn_above: 500000
-```
-
-### Database size
-```yaml
-- name: DB Size
-  query: "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()"
-  format: bytes
-```
-
-### Error rate
-```yaml
-- name: Error Rate (1h)
-  query: "SELECT ROUND(100.0 * COUNT(CASE WHEN status = 'failed' THEN 1 END) / MAX(COUNT(*), 1), 1) FROM runs WHERE created_at > datetime('now', '-1 hour')"
-  format: percent
-  warn_above: 10
-```
-
-## Guidelines for Agents
-
-1. **Read the existing config first** before making changes. Preserve existing databases and watches.
-2. **Use `COALESCE()`** in queries to avoid NULL results (e.g., `COALESCE(SUM(x), 0)`).
-3. **Queries must return exactly one value** -- one row, one column. Litebar will error on multi-row results.
-4. **Use absolute paths** for database paths. Relative paths won't resolve correctly.
-5. **Set meaningful thresholds**. `warn_above: 0` on error/failure counts is a common pattern.
-6. **Group related databases** using the `group` field for visual organization.
-7. **Don't set the refresh interval below 10 seconds** -- it creates unnecessary load.
-8. **Test your queries** against the database before adding them to the config. A broken query shows as a red error in the panel but doesn't crash anything.
+- Ensure local-only files are not tracked (`.claude/settings.local.json`, etc.).
+- Verify README install instructions and GitHub URLs.
+- Verify Homebrew formula metadata (`Formula/litebar.rb`).
+- Run `swift build` and `swift test`.

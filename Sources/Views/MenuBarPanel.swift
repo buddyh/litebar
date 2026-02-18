@@ -36,9 +36,6 @@ struct MenuBarPanel: View {
             footer
         }
         .frame(width: 420, height: 520)
-        .task {
-            await appState.refresh()
-        }
     }
 
     // MARK: - Header
@@ -133,7 +130,7 @@ struct MenuBarPanel: View {
             Text("No databases registered")
                 .font(.callout)
                 .foregroundStyle(.secondary)
-            Text("Add databases to monitor them")
+            Text("Point an agent at ~/.litebar/config.yaml to populate monitors")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
             Button("Add Database...") {
@@ -158,6 +155,9 @@ struct MenuBarPanel: View {
                     .foregroundStyle(.orange)
             }
             Spacer()
+            Text("Agent-managed")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
             Button {
                 appState.addDatabaseFromPicker()
             } label: {
@@ -168,13 +168,13 @@ struct MenuBarPanel: View {
             .help("Add database")
 
             Button {
-                appState.openConfig()
+                appState.openLitebarDirectory()
             } label: {
-                Image(systemName: "doc.text")
+                Image(systemName: "folder")
                     .font(.caption)
             }
             .buttonStyle(.borderless)
-            .help("Edit config.yaml")
+            .help("Open ~/.litebar")
 
             Button("Quit") {
                 NSApp.terminate(nil)

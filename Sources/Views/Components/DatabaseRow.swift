@@ -4,7 +4,11 @@ struct DatabaseRow: View {
     @Environment(AppState.self) private var appState
     let database: SQLiteDatabase
     @State private var isExpanded = false
+    @State private var isRefreshing = false
+    @State private var isCheckingHealth = false
     @State private var isBackingUp = false
+    @State private var actionMessage: String?
+    @State private var actionMessageColor: Color = .secondary
 
     var body: some View {
         VStack(spacing: 0) {
@@ -151,15 +155,22 @@ struct DatabaseRow: View {
 
             // Activity pulse
             if let modified = database.lastModified {
-                HStack(spacing: 4) {
-                    Circle()
-                        .fill(database.isQuiet ? .orange : .green)
-                        .frame(width: 6, height: 6)
-                    Text("Last write: \(modified, style: .relative)")
-                        .font(.system(size: 9))
-                        .foregroundStyle(database.isQuiet ? .orange : .secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(database.isQuiet ? .orange : .green)
+                            .frame(width: 6, height: 6)
+                        Text("Last write: \(modified, style: .relative)")
+                            .font(.system(size: 9))
+                            .foregroundStyle(database.isQuiet ? .orange : .secondary)
+                    }
+                    Text(modified.formatted(date: .abbreviated, time: .standard))
+                        .font(.system(size: 9, design: .monospaced))
+                        .foregroundStyle(.tertiary)
                 }
             }
+
+            healthDetail
 
             // Watch expressions (full detail)
             if !database.watchResults.isEmpty {
@@ -181,6 +192,11 @@ struct DatabaseRow: View {
 
             // Actions
             actionBar
+            if let actionMessage {
+                Text(actionMessage)
+                    .font(.system(size: 9))
+                    .foregroundStyle(actionMessageColor)
+            }
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
@@ -233,6 +249,18 @@ struct DatabaseRow: View {
         }
     }
 
+    private var healthDetail: some View {
+        HStack(spacing: 6) {
+            Image(systemName: database.healthStatus.icon)
+                .font(.system(size: 9))
+                .foregroundStyle(database.healthStatus.color)
+            Text(database.healthStatus.label)
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
     private var metadataGrid: some View {
         Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 3) {
             GridRow {
@@ -257,65 +285,112 @@ struct DatabaseRow: View {
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)
 
-            ForEach(database.tables.prefix(12)) { table in
-                HStack(spacing: 6) {
-                    Image(systemName: "tablecells")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.secondary)
-                    Text(table.name)
-                        .font(.system(size: 10, design: .monospaced))
-                    Spacer()
-                    // Show delta if available
-                    if let prev = database.previousRowCounts[table.name] {
-                        let delta = table.rowCount - prev
-                        if delta != 0 {
-                            Text(delta > 0 ? "+\(delta)" : "\(delta)")
-                                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                .foregroundStyle(delta > 0 ? .green : .red)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(database.tables) { table in
+                        HStack(spacing: 6) {
+                            Image(systemName: "tablecells")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.secondary)
+                            Text(table.name)
+                                .font(.system(size: 10, design: .monospaced))
+                            Spacer()
+                            // Show delta if available
+                            if let prev = database.previousRowCounts[table.name] {
+                                let delta = table.rowCount - prev
+                                if delta != 0 {
+                                    Text(delta > 0 ? "+\(delta)" : "\(delta)")
+                                        .font(.system(size: 8, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(delta > 0 ? .green : .red)
+                                }
+                            }
+                            Text("\(table.rowCount) rows")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    Text("\(table.rowCount) rows")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
                 }
             }
-            if database.tables.count > 12 {
-                Text("+ \(database.tables.count - 12) more...")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-            }
+            .frame(maxHeight: 220)
         }
     }
 
     private var actionBar: some View {
         HStack(spacing: 8) {
             Button {
-                Task { await appState.refreshDatabase(database) }
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-                    .font(.system(size: 10))
-            }
-            .buttonStyle(.borderless)
-
-            Button {
+                isRefreshing = true
+                actionMessage = nil
                 Task {
-                    let status = await appState.checkHealth(for: database)
-                    if let idx = appState.databases.firstIndex(where: { $0.id == database.id }) {
-                        appState.databases[idx].healthStatus = status
-                        appState.databases[idx].lastChecked = Date()
+                    await appState.refreshDatabase(database)
+                    await MainActor.run {
+                        isRefreshing = false
+                        actionMessage = "Refreshed"
+                        actionMessageColor = .secondary
                     }
                 }
             } label: {
-                Label("Health Check", systemImage: "stethoscope")
-                    .font(.system(size: 10))
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                        .font(.system(size: 10))
+                }
             }
             .buttonStyle(.borderless)
+            .disabled(isRefreshing || isCheckingHealth || isBackingUp)
+
+            Button {
+                isCheckingHealth = true
+                actionMessage = nil
+                Task {
+                    let status = await appState.checkHealth(for: database)
+                    await MainActor.run {
+                        if let idx = appState.databases.firstIndex(where: { $0.id == database.id }) {
+                            appState.databases[idx].healthStatus = status
+                            appState.databases[idx].lastChecked = Date()
+                        }
+                        isCheckingHealth = false
+                        actionMessage = status.label
+                        actionMessageColor = {
+                            switch status {
+                            case .healthy, .unknown: return .secondary
+                            case .warning: return .orange
+                            case .error: return .red
+                            }
+                        }()
+                    }
+                }
+            } label: {
+                if isCheckingHealth {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
+                    Label("Health Check", systemImage: "stethoscope")
+                        .font(.system(size: 10))
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(isRefreshing || isCheckingHealth || isBackingUp)
 
             Button {
                 isBackingUp = true
+                actionMessage = nil
                 Task {
-                    _ = try? await appState.backup(database)
-                    isBackingUp = false
+                    do {
+                        let result = try await appState.backup(database)
+                        await MainActor.run {
+                            isBackingUp = false
+                            actionMessage = "Backup saved: \(result.backupPath.lastPathComponent)"
+                            actionMessageColor = .secondary
+                        }
+                    } catch {
+                        await MainActor.run {
+                            isBackingUp = false
+                            actionMessage = "Backup failed: \(error.localizedDescription)"
+                            actionMessageColor = .red
+                        }
+                    }
                 }
             } label: {
                 if isBackingUp {
@@ -327,7 +402,7 @@ struct DatabaseRow: View {
                 }
             }
             .buttonStyle(.borderless)
-            .disabled(isBackingUp)
+            .disabled(isRefreshing || isCheckingHealth || isBackingUp)
 
             Spacer()
         }
