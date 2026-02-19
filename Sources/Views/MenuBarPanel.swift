@@ -57,11 +57,13 @@ struct MenuBarPanel: View {
                     .foregroundStyle(.secondary)
             }
             Button {
+                clearControlFocus()
                 Task { await appState.refresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.plain)
+            .focusable(false)
             .disabled(appState.isLoading)
 
             Menu {
@@ -85,6 +87,10 @@ struct MenuBarPanel: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    private func clearControlFocus() {
+        NSApp.keyWindow?.makeFirstResponder(nil)
     }
 
     // MARK: - Search
