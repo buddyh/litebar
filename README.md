@@ -37,22 +37,24 @@ Litebar is not limited to mission-control agent databases. That is one common us
 
 ## Installation
 
-### Homebrew (tap)
+### Homebrew Cask (recommended)
 
 ```bash
 brew tap buddyh/homebrew-tap
-brew install buddyh/homebrew-tap/litebar
-```
-
-Development builds:
-
-```bash
-brew install --HEAD buddyh/homebrew-tap/litebar
+brew install --cask buddyh/homebrew-tap/litebar
 ```
 
 Launch:
 
 ```bash
+open -a Litebar
+```
+
+### Homebrew Formula (developer build)
+
+```bash
+brew tap buddyh/homebrew-tap
+brew install buddyh/homebrew-tap/litebar
 litebar
 ```
 
@@ -152,6 +154,12 @@ Per-database actions in expanded rows:
 ```bash
 swift build
 swift test
+```
+
+Release packaging helper:
+
+```bash
+scripts/package-macos-app.sh 0.1.2
 ```
 
 ## License
