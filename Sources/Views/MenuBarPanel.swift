@@ -71,7 +71,10 @@ struct MenuBarPanel: View {
                     appState.requestRefresh()
                 }
                 Button("Open Settings") {
-                    NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+                    NotificationCenter.default.post(name: .litebarOpenSettings, object: nil)
+                }
+                Button("About Litebar") {
+                    NotificationCenter.default.post(name: .litebarOpenAbout, object: nil)
                 }
                 Button("Open ~/.litebar") {
                     appState.openLitebarDirectory()
@@ -196,6 +199,12 @@ struct MenuBarPanel: View {
             .font(.caption)
             .controlSize(.small)
             .help("Open ~/.litebar")
+
+            Button("Settings") {
+                NotificationCenter.default.post(name: .litebarOpenSettings, object: nil)
+            }
+            .font(.caption)
+            .controlSize(.small)
 
             Button("Quit") {
                 appState.quit()

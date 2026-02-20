@@ -9,6 +9,8 @@ struct SettingsView: View {
                 .tabItem { Label("Databases", systemImage: "cylinder.split.1x2") }
             configTab
                 .tabItem { Label("Agent Setup", systemImage: "person.2.fill") }
+            aboutTab
+                .tabItem { Label("About", systemImage: "info.circle") }
         }
         .frame(width: 520, height: 380)
     }
@@ -144,5 +146,56 @@ struct SettingsView: View {
             Spacer()
         }
         .padding()
+    }
+
+    // MARK: - About Tab
+
+    private var aboutTab: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Image(systemName: "cylinder.split.1x2")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Litebar")
+                        .font(.headline)
+                    Text("Version \(appVersion)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+
+            Text("Litebar monitors SQLite health, activity, and custom watch queries for agent-driven systems.")
+                .font(.callout)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Menu bar visibility into tables, watch values, and alerts", systemImage: "checkmark.circle")
+                Label("Agent-managed config at ~/.litebar/config.yaml", systemImage: "checkmark.circle")
+                Label("Open source: github.com/buddyh/litebar", systemImage: "checkmark.circle")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Spacer()
+
+            HStack {
+                Link("GitHub Repo", destination: URL(string: "https://github.com/buddyh/litebar")!)
+                Link("GitHub @buddyh", destination: URL(string: "https://github.com/buddyh")!)
+                Link("X @buddyhadry", destination: URL(string: "https://x.com/buddyhadry")!)
+                Spacer()
+                Button("Open About Window") {
+                    NotificationCenter.default.post(name: .litebarOpenAbout, object: nil)
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding()
+    }
+
+    private var appVersion: String {
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? short
+        return short == build ? short : "\(short) (\(build))"
     }
 }
