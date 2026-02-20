@@ -22,6 +22,7 @@ final class AppState {
     private var userRefreshTask: Task<Void, Never>?
     private var refreshRequested = false
     private var configWatchSource: DispatchSourceFileSystemObject?
+    private var aboutWindowController: NSWindowController?
     private var pendingConfigRefresh: Task<Void, Never>?
     private var dbWatchSources: [String: DispatchSourceFileSystemObject] = [:]
     private var pendingDbRefresh: Task<Void, Never>?
@@ -248,6 +249,27 @@ final class AppState {
         NSApp.terminate(nil)
     }
 
+    func openSettingsWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+    }
+
+    func openAboutWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let ctrl = aboutWindowController {
+            ctrl.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let hosting = NSHostingController(rootView: AboutView())
+        let window = NSPanel(contentViewController: hosting)
+        window.title = "About Litebar"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        let ctrl = NSWindowController(window: window)
+        aboutWindowController = ctrl
+        ctrl.showWindow(nil)
+    }
+
     // MARK: - Health & Refresh
 
     func refreshDatabase(_ db: SQLiteDatabase) async {
@@ -343,7 +365,7 @@ final class AppState {
         dbWatchSources.removeAll()
     }
 
-    private func startConfigWatch() {
+    func startConfigWatch() {
         do {
             try FileManager.default.createDirectory(at: AppConfig.configDir, withIntermediateDirectories: true)
         } catch {
