@@ -47,7 +47,9 @@ final class AppState {
         refreshRequested = true
         guard userRefreshTask == nil else { return }
 
-        userRefreshTask = Task { [weak self] in
+        // Use a detached task so refresh execution cannot inherit cancellation
+        // from caller contexts (e.g. debounced config-watch tasks).
+        userRefreshTask = Task.detached(priority: .utility) { [weak self] in
             guard let self else { return }
             await self.processRefreshQueue()
         }
@@ -61,11 +63,13 @@ final class AppState {
     }
 
     private func processRefreshQueue() async {
+        defer { userRefreshTask = nil }
+
         while refreshRequested {
             refreshRequested = false
             await runRefreshCycle()
+            if Task.isCancelled { break }
         }
-        userRefreshTask = nil
     }
 
     private func runRefreshCycle() async {
