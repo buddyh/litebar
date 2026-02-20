@@ -20,6 +20,7 @@ final class AppState {
     private let backupManager = BackupManager()
     private var refreshTask: Task<Void, Never>?
     private var userRefreshTask: Task<Void, Never>?
+    private var refreshRequested = false
     private var configWatchSource: DispatchSourceFileSystemObject?
     private var pendingConfigRefresh: Task<Void, Never>?
 
@@ -43,15 +44,31 @@ final class AppState {
     // MARK: - Full refresh cycle
 
     func requestRefresh() {
-        userRefreshTask?.cancel()
+        refreshRequested = true
+        guard userRefreshTask == nil else { return }
+
         userRefreshTask = Task { [weak self] in
             guard let self else { return }
-            await self.refresh()
-            await MainActor.run { self.userRefreshTask = nil }
+            await self.processRefreshQueue()
         }
     }
 
     func refresh() async {
+        requestRefresh()
+        while userRefreshTask != nil {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
+    private func processRefreshQueue() async {
+        while refreshRequested {
+            refreshRequested = false
+            await runRefreshCycle()
+        }
+        userRefreshTask = nil
+    }
+
+    private func runRefreshCycle() async {
         isLoading = true
         defer { isLoading = false }
 
@@ -251,7 +268,7 @@ final class AppState {
         refreshTask = Task {
             NSLog("[Litebar] refresh loop starting")
             while !Task.isCancelled {
-                await refresh()
+                await MainActor.run { self.requestRefresh() }
                 try? await Task.sleep(for: .seconds(Double(config.refreshInterval)))
             }
         }

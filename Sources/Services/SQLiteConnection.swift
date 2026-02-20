@@ -12,12 +12,27 @@ actor SQLiteConnection {
 
     func open() throws {
         // Force a private page cache per connection so each refresh sees current DB state.
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_PRIVATECACHE
-        let result = sqlite3_open_v2(path.path(percentEncoded: false), &db, flags, nil)
+        let basePath = path.path(percentEncoded: false)
+        let readWriteFlags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_PRIVATECACHE
+        var result = sqlite3_open_v2(basePath, &db, readWriteFlags, nil)
+
+        // Some DB files may be read-only (permissions/sandbox). Fall back gracefully.
+        if result != SQLITE_OK {
+            if let db {
+                sqlite3_close_v2(db)
+                self.db = nil
+            }
+            let readOnlyFlags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_PRIVATECACHE
+            result = sqlite3_open_v2(basePath, &db, readOnlyFlags, nil)
+        }
+
         guard result == SQLITE_OK else {
             let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
             throw LitebarError.cannotOpen(msg)
         }
+
+        // Enforce read-only behavior even on read-write handles.
+        _ = sqlite3_exec(db, "PRAGMA query_only = ON", nil, nil, nil)
         // Set a short busy timeout so we don't block
         sqlite3_busy_timeout(db, 1000)
     }

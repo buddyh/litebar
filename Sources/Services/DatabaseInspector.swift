@@ -10,9 +10,9 @@ actor DatabaseInspector {
 
             var db = SQLiteDatabase(path: url)
             db.fileSize = fileSize(url)
-            db.lastModified = modificationDate(url)
             db.walSize = fileSize(walURL(for: url))
             db.shmSize = fileSize(shmURL(for: url))
+            db.lastModified = latestModificationDate(for: url)
 
             // Pragmas
             db.journalMode = try await conn.scalar("PRAGMA journal_mode")
@@ -71,6 +71,11 @@ actor DatabaseInspector {
     private func modificationDate(_ url: URL) -> Date? {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
         return attrs?[.modificationDate] as? Date
+    }
+
+    private func latestModificationDate(for url: URL) -> Date? {
+        let candidates = [url, walURL(for: url), shmURL(for: url)]
+        return candidates.compactMap { modificationDate($0) }.max()
     }
 
     private func walURL(for url: URL) -> URL {

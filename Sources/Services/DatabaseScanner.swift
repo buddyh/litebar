@@ -54,9 +54,9 @@ actor DatabaseScanner {
             } else if isSQLiteFile(url) {
                 if var db = await inspect(url) {
                     db.fileSize = fileSize(url)
-                    db.lastModified = modificationDate(url)
                     db.walSize = fileSize(URL(filePath: url.path(percentEncoded: false) + "-wal"))
                     db.shmSize = fileSize(URL(filePath: url.path(percentEncoded: false) + "-shm"))
+                    db.lastModified = latestModificationDate(for: url)
                     results.append(db)
                 }
             }
@@ -147,6 +147,15 @@ actor DatabaseScanner {
     private func modificationDate(_ url: URL) -> Date? {
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path(percentEncoded: false))
         return attrs?[.modificationDate] as? Date
+    }
+
+    private func latestModificationDate(for url: URL) -> Date? {
+        let candidates = [
+            url,
+            URL(filePath: url.path(percentEncoded: false) + "-wal"),
+            URL(filePath: url.path(percentEncoded: false) + "-shm"),
+        ]
+        return candidates.compactMap { modificationDate($0) }.max()
     }
 
     private func quotedIdentifier(_ identifier: String) -> String {
