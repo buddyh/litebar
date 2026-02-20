@@ -75,82 +75,84 @@ final class AppState {
         // Reload config (might have been edited by agent)
         config = AppConfig.load().normalized()
         var nextAlerts: Set<String> = []
+        var updatedDatabases = databases
 
         for entry in config.databases {
             let url = URL(filePath: entry.path)
 
             // Find or create database entry
             let dbIdx: Int
-            if let existing = databases.firstIndex(where: { $0.path == url }) {
+            if let existing = updatedDatabases.firstIndex(where: { $0.path == url }) {
                 dbIdx = existing
             } else {
                 var db = SQLiteDatabase(path: url)
                 db.customName = entry.name
                 db.group = entry.group
                 db.isRegistered = true
-                databases.append(db)
-                dbIdx = databases.count - 1
+                updatedDatabases.append(db)
+                dbIdx = updatedDatabases.count - 1
             }
 
-            databases[dbIdx].customName = entry.name
-            databases[dbIdx].group = entry.group
-            databases[dbIdx].isRegistered = true
+            updatedDatabases[dbIdx].customName = entry.name
+            updatedDatabases[dbIdx].group = entry.group
+            updatedDatabases[dbIdx].isRegistered = true
 
             guard FileManager.default.fileExists(atPath: entry.path) else {
-                databases[dbIdx].healthStatus = .error("File not found")
-                databases[dbIdx].lastChecked = Date()
-                databases[dbIdx].isQuiet = false
-                databases[dbIdx].watchResults = []
+                updatedDatabases[dbIdx].healthStatus = .error("File not found")
+                updatedDatabases[dbIdx].lastChecked = Date()
+                updatedDatabases[dbIdx].isQuiet = false
+                updatedDatabases[dbIdx].watchResults = []
                 continue
             }
 
             // Snapshot previous row counts before re-inspecting
             let prevCounts = Dictionary(
-                uniqueKeysWithValues: databases[dbIdx].tables.map { ($0.name, $0.rowCount) }
+                uniqueKeysWithValues: updatedDatabases[dbIdx].tables.map { ($0.name, $0.rowCount) }
             )
 
             if let inspected = await inspector.inspect(url) {
-                applyInspection(inspected, to: dbIdx)
+                applyInspection(inspected, to: &updatedDatabases[dbIdx])
             } else {
-                databases[dbIdx].healthStatus = .error("Inspection failed")
-                databases[dbIdx].lastChecked = Date()
-                databases[dbIdx].watchResults = []
+                updatedDatabases[dbIdx].healthStatus = .error("Inspection failed")
+                updatedDatabases[dbIdx].lastChecked = Date()
+                updatedDatabases[dbIdx].watchResults = []
                 continue
             }
 
-            databases[dbIdx].previousRowCounts = prevCounts
+            updatedDatabases[dbIdx].previousRowCounts = prevCounts
 
             // Activity pulse: check if database is quiet
-            databases[dbIdx].isQuiet = isDatabaseQuiet(databases[dbIdx])
+            updatedDatabases[dbIdx].isQuiet = isDatabaseQuiet(updatedDatabases[dbIdx])
 
             // Health check
-            databases[dbIdx].healthStatus = await healthChecker.check(databases[dbIdx])
-            databases[dbIdx].lastChecked = Date()
+            updatedDatabases[dbIdx].healthStatus = await healthChecker.check(updatedDatabases[dbIdx])
+            updatedDatabases[dbIdx].lastChecked = Date()
 
             // Run watch expressions
             if let watches = entry.watches, !watches.isEmpty {
-                let results = await watchExecutor.execute(watches: watches, on: databases[dbIdx])
-                databases[dbIdx].watchResults = results
+                let results = await watchExecutor.execute(watches: watches, on: updatedDatabases[dbIdx])
+                updatedDatabases[dbIdx].watchResults = results
 
                 for (watch, result) in zip(watches, results) where result.alertState != .normal {
-                    let key = alertKey(databaseID: databases[dbIdx].id, watch: watch)
+                    let key = alertKey(databaseID: updatedDatabases[dbIdx].id, watch: watch)
                     nextAlerts.insert(key)
                     if !previousAlerts.contains(key) {
                         watchExecutor.sendAlert(
-                            dbName: databases[dbIdx].displayName,
+                            dbName: updatedDatabases[dbIdx].displayName,
                             watchName: result.name,
                             value: result.displayValue
                         )
                     }
                 }
             } else {
-                databases[dbIdx].watchResults = []
+                updatedDatabases[dbIdx].watchResults = []
             }
         }
 
         // Remove databases no longer in config
         let configPaths = Set(config.databases.map { $0.path })
-        databases.removeAll { !configPaths.contains($0.path.path(percentEncoded: false)) }
+        updatedDatabases.removeAll { !configPaths.contains($0.path.path(percentEncoded: false)) }
+        databases = updatedDatabases
         previousAlerts = nextAlerts
 
         lastRefresh = Date()
@@ -231,25 +233,27 @@ final class AppState {
     func refreshDatabase(_ db: SQLiteDatabase) async {
         guard let idx = databases.firstIndex(where: { $0.id == db.id }) else { return }
         config = AppConfig.load().normalized()
+        var updated = databases[idx]
 
         let prevCounts = Dictionary(
-            uniqueKeysWithValues: databases[idx].tables.map { ($0.name, $0.rowCount) }
+            uniqueKeysWithValues: updated.tables.map { ($0.name, $0.rowCount) }
         )
 
-        if let inspected = await inspector.inspect(db.path) {
-            applyInspection(inspected, to: idx)
-            databases[idx].previousRowCounts = prevCounts
+        if let inspected = await inspector.inspect(updated.path) {
+            applyInspection(inspected, to: &updated)
+            updated.previousRowCounts = prevCounts
         }
-        databases[idx].isQuiet = isDatabaseQuiet(databases[idx])
-        databases[idx].healthStatus = await healthChecker.check(databases[idx])
-        databases[idx].lastChecked = Date()
+        updated.isQuiet = isDatabaseQuiet(updated)
+        updated.healthStatus = await healthChecker.check(updated)
+        updated.lastChecked = Date()
 
-        let dbPath = databases[idx].path.path(percentEncoded: false)
+        let dbPath = updated.path.path(percentEncoded: false)
         if let watches = config.databases.first(where: { $0.path == dbPath })?.watches, !watches.isEmpty {
-            databases[idx].watchResults = await watchExecutor.execute(watches: watches, on: databases[idx])
+            updated.watchResults = await watchExecutor.execute(watches: watches, on: updated)
         } else {
-            databases[idx].watchResults = []
+            updated.watchResults = []
         }
+        databases[idx] = updated
     }
 
     func checkHealth(for db: SQLiteDatabase) async -> HealthStatus {
@@ -335,18 +339,18 @@ final class AppState {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    private func applyInspection(_ inspected: SQLiteDatabase, to index: Int) {
-        databases[index].fileSize = inspected.fileSize
-        databases[index].tableCount = inspected.tableCount
-        databases[index].tables = inspected.tables
-        databases[index].lastModified = inspected.lastModified
-        databases[index].walSize = inspected.walSize
-        databases[index].shmSize = inspected.shmSize
-        databases[index].journalMode = inspected.journalMode
-        databases[index].pageSize = inspected.pageSize
-        databases[index].pageCount = inspected.pageCount
-        databases[index].encoding = inspected.encoding
-        databases[index].sqliteVersion = inspected.sqliteVersion
+    private func applyInspection(_ inspected: SQLiteDatabase, to database: inout SQLiteDatabase) {
+        database.fileSize = inspected.fileSize
+        database.tableCount = inspected.tableCount
+        database.tables = inspected.tables
+        database.lastModified = inspected.lastModified
+        database.walSize = inspected.walSize
+        database.shmSize = inspected.shmSize
+        database.journalMode = inspected.journalMode
+        database.pageSize = inspected.pageSize
+        database.pageCount = inspected.pageCount
+        database.encoding = inspected.encoding
+        database.sqliteVersion = inspected.sqliteVersion
     }
 
     private func isDatabaseQuiet(_ database: SQLiteDatabase) -> Bool {
