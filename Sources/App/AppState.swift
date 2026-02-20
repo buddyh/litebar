@@ -28,11 +28,15 @@ final class AppState {
         }
     }
 
-    init() {
+    init(autoStart: Bool = true, requestNotifications: Bool = true) {
         self.config = AppConfig.load()
-        requestNotificationPermission()
-        startAutoRefresh()
-        startConfigWatch()
+        if requestNotifications {
+            requestNotificationPermission()
+        }
+        if autoStart {
+            startAutoRefresh()
+            startConfigWatch()
+        }
     }
 
     // MARK: - Full refresh cycle

@@ -11,7 +11,8 @@ actor SQLiteConnection {
     }
 
     func open() throws {
-        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX
+        // Force a private page cache per connection so each refresh sees current DB state.
+        let flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX | SQLITE_OPEN_PRIVATECACHE
         let result = sqlite3_open_v2(path.path(percentEncoded: false), &db, flags, nil)
         guard result == SQLITE_OK else {
             let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"

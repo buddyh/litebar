@@ -11,7 +11,6 @@ actor WatchExecutor {
         let conn = SQLiteConnection(path: database.path)
         do {
             try await conn.open()
-            defer { Task { await conn.close() } }
 
             var results: [WatchResult] = []
             for watch in watches {
@@ -44,8 +43,10 @@ actor WatchExecutor {
 
                 results.append(result)
             }
+            await conn.close()
             return results
         } catch {
+            await conn.close()
             return watches.map { watch in
                 var r = WatchResult(
                     id: "\(database.id):\(watch.name):\(watch.query)",

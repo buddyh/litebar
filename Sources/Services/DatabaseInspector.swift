@@ -7,7 +7,6 @@ actor DatabaseInspector {
         let conn = SQLiteConnection(path: url)
         do {
             try await conn.open()
-            defer { Task { await conn.close() } }
 
             var db = SQLiteDatabase(path: url)
             db.fileSize = fileSize(url)
@@ -55,8 +54,10 @@ actor DatabaseInspector {
                 db.tables.append(table)
             }
 
+            await conn.close()
             return db
         } catch {
+            await conn.close()
             NSLog("[Litebar] Inspect failed for %@: %@", url.path(), error.localizedDescription)
             return nil
         }

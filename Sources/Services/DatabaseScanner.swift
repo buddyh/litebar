@@ -79,7 +79,6 @@ actor DatabaseScanner {
         let conn = SQLiteConnection(path: url)
         do {
             try await conn.open()
-            defer { Task { await conn.close() } }
 
             var db = SQLiteDatabase(path: url)
 
@@ -132,8 +131,10 @@ actor DatabaseScanner {
                 db.tables.append(table)
             }
 
+            await conn.close()
             return db
         } catch {
+            await conn.close()
             return nil
         }
     }
