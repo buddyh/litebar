@@ -23,6 +23,8 @@ final class AppState {
     private var refreshRequested = false
     private var configWatchSource: DispatchSourceFileSystemObject?
     private var pendingConfigRefresh: Task<Void, Never>?
+    private var dbWatchSources: [String: DispatchSourceFileSystemObject] = [:]
+    private var pendingDbRefresh: Task<Void, Never>?
 
     var totalWarnings: Int {
         databases.reduce(0) { count, db in
@@ -160,6 +162,7 @@ final class AppState {
         previousAlerts = nextAlerts
 
         lastRefresh = Date()
+        updateDatabaseWatchers(for: config.databases)
     }
 
     // MARK: - Config management
@@ -240,6 +243,7 @@ final class AppState {
 
     func quit() {
         stopConfigWatch()
+        stopAllDatabaseWatchers()
         stopAutoRefresh()
         NSApp.terminate(nil)
     }
@@ -299,6 +303,44 @@ final class AppState {
         refreshTask = nil
         userRefreshTask?.cancel()
         userRefreshTask = nil
+    }
+
+    private func updateDatabaseWatchers(for databases: [AppConfig.DatabaseEntry]) {
+        let neededDirs = Set(databases.map { ($0.path as NSString).deletingLastPathComponent })
+
+        for dir in Set(dbWatchSources.keys).subtracting(neededDirs) {
+            dbWatchSources.removeValue(forKey: dir)?.cancel()
+        }
+
+        for dir in neededDirs where dbWatchSources[dir] == nil {
+            let fd = open(dir, O_EVTONLY)
+            guard fd >= 0 else { continue }
+
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: fd,
+                eventMask: [.write, .extend, .rename, .delete, .attrib],
+                queue: .main
+            )
+            source.setEventHandler { [weak self] in
+                guard let self else { return }
+                self.pendingDbRefresh?.cancel()
+                self.pendingDbRefresh = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(500))
+                    guard let self else { return }
+                    await MainActor.run { self.requestRefresh() }
+                }
+            }
+            source.setCancelHandler { close(fd) }
+            source.resume()
+            dbWatchSources[dir] = source
+        }
+    }
+
+    private func stopAllDatabaseWatchers() {
+        pendingDbRefresh?.cancel()
+        pendingDbRefresh = nil
+        dbWatchSources.values.forEach { $0.cancel() }
+        dbWatchSources.removeAll()
     }
 
     private func startConfigWatch() {
