@@ -43,12 +43,6 @@ struct LitebarApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        WindowGroup("LitebarLifecycleKeepalive") {
-            HiddenWindowView()
-        }
-        .defaultSize(width: 20, height: 20)
-        .windowStyle(.hiddenTitleBar)
-
         Settings {
             SettingsView()
                 .environment(appState)
@@ -63,9 +57,12 @@ struct LitebarApp: App {
 }
 
 private struct OpenSettingsMenuItem: View {
+    @Environment(\.openSettings) private var openSettings
+
     var body: some View {
         Button {
-            NotificationCenter.default.post(name: .litebarOpenSettings, object: nil)
+            openSettings()
+            NSApp.activate(ignoringOtherApps: true)
         } label: {
             Label("Settings", systemImage: "gearshape")
         }
@@ -73,53 +70,14 @@ private struct OpenSettingsMenuItem: View {
 }
 
 private struct OpenAboutMenuItem: View {
+    @Environment(\.openWindow) private var openWindow
+
     var body: some View {
         Button {
-            NotificationCenter.default.post(name: .litebarOpenAbout, object: nil)
+            openWindow(id: "about")
+            NSApp.activate(ignoringOtherApps: true)
         } label: {
             Label("About Litebar", systemImage: "info.circle")
         }
     }
-}
-
-private struct HiddenWindowView: View {
-    @Environment(\.openSettings) private var openSettings
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Color.clear
-            .frame(width: 20, height: 20)
-            .onReceive(NotificationCenter.default.publisher(for: .litebarOpenSettings)) { _ in
-                Task { @MainActor in
-                    openSettings()
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .litebarOpenAbout)) { _ in
-                Task { @MainActor in
-                    openWindow(id: "about")
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-            }
-            .onAppear {
-                guard let window = NSApp.windows.first(where: { $0.title == "LitebarLifecycleKeepalive" }) else { return }
-                window.styleMask = [.borderless]
-                window.collectionBehavior = [.auxiliary, .ignoresCycle, .transient, .canJoinAllSpaces]
-                window.isExcludedFromWindowsMenu = true
-                window.level = .floating
-                window.isOpaque = false
-                window.alphaValue = 0
-                window.backgroundColor = .clear
-                window.hasShadow = false
-                window.ignoresMouseEvents = true
-                window.canHide = false
-                window.setContentSize(NSSize(width: 1, height: 1))
-                window.setFrameOrigin(NSPoint(x: -5000, y: -5000))
-            }
-    }
-}
-
-extension Notification.Name {
-    static let litebarOpenSettings = Notification.Name("litebarOpenSettings")
-    static let litebarOpenAbout = Notification.Name("litebarOpenAbout")
 }

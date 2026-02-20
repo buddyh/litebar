@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         TabView {
@@ -209,7 +210,8 @@ struct SettingsView: View {
                 Link("X @buddyhadry", destination: URL(string: "https://x.com/buddyhadry")!)
                 Spacer()
                 Button("Open About Window") {
-                    NotificationCenter.default.post(name: .litebarOpenAbout, object: nil)
+                    openWindow(id: "about")
+                    NSApp.activate(ignoringOtherApps: true)
                 }
                 .controlSize(.small)
             }

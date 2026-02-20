@@ -2,6 +2,8 @@ import SwiftUI
 
 struct MenuBarPanel: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @State private var searchText = ""
 
     private var filteredGroups: [(group: String, databases: [SQLiteDatabase])] {
@@ -71,10 +73,12 @@ struct MenuBarPanel: View {
                     appState.requestRefresh()
                 }
                 Button("Open Settings") {
-                    NotificationCenter.default.post(name: .litebarOpenSettings, object: nil)
+                    openSettings()
+                    NSApp.activate(ignoringOtherApps: true)
                 }
                 Button("About Litebar") {
-                    NotificationCenter.default.post(name: .litebarOpenAbout, object: nil)
+                    openWindow(id: "about")
+                    NSApp.activate(ignoringOtherApps: true)
                 }
                 Button("Open ~/.litebar") {
                     appState.openLitebarDirectory()
@@ -201,7 +205,8 @@ struct MenuBarPanel: View {
             .help("Open ~/.litebar")
 
             Button("Settings") {
-                NotificationCenter.default.post(name: .litebarOpenSettings, object: nil)
+                openSettings()
+                NSApp.activate(ignoringOtherApps: true)
             }
             .font(.caption)
             .controlSize(.small)
