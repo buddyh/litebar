@@ -19,6 +19,7 @@ final class AppState {
     private let watchExecutor = WatchExecutor()
     private let backupManager = BackupManager()
     private var refreshTask: Task<Void, Never>?
+    private var userRefreshTask: Task<Void, Never>?
     private var configWatchSource: DispatchSourceFileSystemObject?
     private var pendingConfigRefresh: Task<Void, Never>?
 
@@ -40,6 +41,15 @@ final class AppState {
     }
 
     // MARK: - Full refresh cycle
+
+    func requestRefresh() {
+        userRefreshTask?.cancel()
+        userRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            await self.refresh()
+            await MainActor.run { self.userRefreshTask = nil }
+        }
+    }
 
     func refresh() async {
         isLoading = true
@@ -163,7 +173,7 @@ final class AppState {
                     let name = url.deletingPathExtension().lastPathComponent
                     self.addDatabase(path: url.path(percentEncoded: false), name: name)
                 }
-                Task { await self.refresh() }
+                self.requestRefresh()
             }
         }
     }
@@ -250,6 +260,8 @@ final class AppState {
     func stopAutoRefresh() {
         refreshTask?.cancel()
         refreshTask = nil
+        userRefreshTask?.cancel()
+        userRefreshTask = nil
     }
 
     private func startConfigWatch() {
@@ -275,7 +287,7 @@ final class AppState {
             self.pendingConfigRefresh = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(300))
                 guard let self else { return }
-                await self.refresh()
+                await MainActor.run { self.requestRefresh() }
             }
         }
         source.setCancelHandler {

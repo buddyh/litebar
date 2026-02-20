@@ -58,7 +58,7 @@ struct MenuBarPanel: View {
             }
             Button {
                 clearControlFocus()
-                Task { await appState.refresh() }
+                appState.requestRefresh()
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
@@ -68,7 +68,7 @@ struct MenuBarPanel: View {
 
             Menu {
                 Button("Refresh Now") {
-                    Task { await appState.refresh() }
+                    appState.requestRefresh()
                 }
                 Button("Open Settings") {
                     NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)

@@ -18,7 +18,7 @@ struct LitebarApp: App {
             }
             .contextMenu {
                 Button {
-                    Task { await appState.refresh() }
+                    appState.requestRefresh()
                 } label: {
                     Label("Refresh Now", systemImage: "arrow.clockwise")
                 }

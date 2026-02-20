@@ -56,11 +56,78 @@ final class AppStateRefreshTests: XCTestCase {
     }
 
     @MainActor
+    func testRequestRefreshUpdatesAfterRapidCalls() async throws {
+        let dbURL = tempDir.appending(path: "runs-rapid.db")
+        try execSQL("PRAGMA journal_mode=WAL;", on: dbURL)
+        try execSQL(
+            "CREATE TABLE orchestration_proposals (id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT NOT NULL);",
+            on: dbURL
+        )
+        try execSQL(
+            "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 37) INSERT INTO orchestration_proposals(status) SELECT 'proposed' FROM c;",
+            on: dbURL
+        )
+
+        let configYAML = """
+        refresh_interval: 60
+        activity_timeout_minutes: 30
+        databases:
+          - path: \(dbURL.path(percentEncoded: false))
+            name: Rapid Test DB
+            watches:
+              - name: Proposals Awaiting Approval
+                query: "SELECT COUNT(*) FROM orchestration_proposals WHERE status = 'proposed'"
+        """
+        try configYAML.write(to: AppConfig.configURL, atomically: true, encoding: .utf8)
+
+        let appState = AppState(autoStart: false, requestNotifications: false)
+
+        appState.requestRefresh()
+        try await waitForValue(named: "Proposals Awaiting Approval", equals: "37", in: appState)
+
+        try execSQL("INSERT INTO orchestration_proposals(status) VALUES ('proposed');", on: dbURL)
+        for _ in 0..<8 { appState.requestRefresh() }
+        try await waitForValue(named: "Proposals Awaiting Approval", equals: "38", in: appState)
+
+        try execSQL(
+            "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 5) INSERT INTO orchestration_proposals(status) SELECT 'proposed' FROM c;",
+            on: dbURL
+        )
+        for _ in 0..<8 { appState.requestRefresh() }
+        try await waitForValue(named: "Proposals Awaiting Approval", equals: "43", in: appState)
+    }
+
+    @MainActor
     private func value(of watchName: String, in appState: AppState) -> String? {
         appState.databases.first?
             .watchResults
             .first(where: { $0.name == watchName })?
             .value
+    }
+
+    @MainActor
+    private func waitForValue(
+        named watchName: String,
+        equals expected: String,
+        in appState: AppState
+    ) async throws {
+        let timeoutNanos: UInt64 = 5_000_000_000
+        let intervalNanos: UInt64 = 50_000_000
+        var waited: UInt64 = 0
+
+        while waited <= timeoutNanos {
+            if value(of: watchName, in: appState) == expected {
+                return
+            }
+            try await Task.sleep(nanoseconds: intervalNanos)
+            waited += intervalNanos
+        }
+
+        throw NSError(
+            domain: "AppStateRefreshTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for watch '\(watchName)' to equal '\(expected)'"]
+        )
     }
 
     private func execSQL(_ sql: String, on dbURL: URL) throws {
