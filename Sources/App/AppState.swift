@@ -165,6 +165,18 @@ final class AppState {
         try? config.save()
     }
 
+    func updateRefreshInterval(seconds: Int) {
+        config.refreshInterval = max(10, seconds)
+        config = config.normalized()
+        do {
+            try config.save()
+        } catch {
+            NSLog("[Litebar] Failed to save refresh interval: %@", error.localizedDescription)
+        }
+        startAutoRefresh()
+        requestRefresh()
+    }
+
     func removeDatabase(_ db: SQLiteDatabase) {
         config.removeDatabase(path: db.path.path(percentEncoded: false))
         try? config.save()

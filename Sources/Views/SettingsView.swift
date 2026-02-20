@@ -143,6 +143,30 @@ struct SettingsView: View {
                 .padding(4)
             }
 
+            GroupBox("Quick Controls") {
+                HStack {
+                    Text("Refresh cadence")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Stepper(
+                        value: Binding(
+                            get: { appState.config.refreshInterval },
+                            set: { appState.updateRefreshInterval(seconds: $0) }
+                        ),
+                        in: 10...3600,
+                        step: 5
+                    ) {
+                        Text("\(appState.config.refreshInterval)s")
+                            .font(.caption.monospacedDigit())
+                    }
+                    .frame(width: 170, alignment: .trailing)
+                }
+                Text("Writes to ~/.litebar/config.yaml. Agents can still update this value.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
             Spacer()
         }
         .padding()
